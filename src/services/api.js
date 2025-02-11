@@ -56,6 +56,30 @@ export async function fetchActionsByInstructionId(instructionId) {
   return response.json();
 }
 
+export async function deleteTask(taskId) {
+  const response = await fetch(`${BASE_URL}/task/${taskId}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) throw new Error('Error deleting task');
+  return response.json();
+}
+
+export async function deleteInstruction(instructionId) {
+  const response = await fetch(`${BASE_URL}/instructions/${instructionId}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) throw new Error('Error deleting instruction');
+  return response.json();
+}
+
+export async function deleteAction(actionId) {
+  const response = await fetch(`${BASE_URL}/actions/${actionId}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) throw new Error('Error deleting action');
+  return response.json();
+}
+
 /**
  * Below are placeholders for "running" tasks, instructions, or actions.
  * You can define them as needed, for example:
@@ -76,3 +100,41 @@ export async function runAction(actionId) {
   console.log(`Placeholder: runAction called with ${actionId}`);
 }
 
+export async function updateInstructionValidation(instructionId, validation) {
+  const response = await fetch(`${BASE_URL}/instructions/${instructionId}/validation`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(validation)
+  });
+  if (!response.ok) throw new Error('Error updating instruction validation');
+  return response.json();
+}
+
+export async function updateActionValidation(actionId, validationData) {
+  const url = `${BASE_URL}/actions/${actionId}/validation`;
+  console.log('URL:', url);
+  console.log('Method:', 'POST');
+  console.log('Original payload:', validationData);
+
+  // The validation data should be sent directly without any wrapper
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(validationData)
+  });
+  
+  console.log('Response status:', response.status);
+  console.log('Response status text:', response.statusText);
+  
+  if (!response.ok) {
+    console.error('Error response:', response);
+    throw new Error('Error updating action validation');
+  }
+  
+  const data = await response.json();
+  return data;
+}

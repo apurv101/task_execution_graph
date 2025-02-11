@@ -1,6 +1,17 @@
 // src/components/ActionCard.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+// S3 Client configuration
+const s3Client = new S3Client({
+  region: process.env.REACT_APP_AWS_REGION || 'us-east-2',
+  credentials: {
+    accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY,
+  }
+});
 
 /**
  * Renders a single Action as a "card" with some preview info.
@@ -17,16 +28,45 @@ import { Link } from 'react-router-dom';
  */
 export default function ActionCard({ action, showDetailsLink = true }) {
   const [expandedImage, setExpandedImage] = useState(null);
+  const [imageUrls, setImageUrls] = useState({});
 
-  const getImageUrl = (absolutePath) => {
-    if (!absolutePath) return '';
-    return `/api/image-path/${encodeURIComponent(absolutePath)}`;
+  const getSignedImageUrl = async (objectKey) => {
+    if (!objectKey) return '';
+    try {
+      const command = new GetObjectCommand({
+        Bucket: process.env.REACT_APP_S3_BUCKET_NAME,
+        Key: objectKey,
+      });
+      const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+      return signedUrl;
+    } catch (error) {
+      console.error("Error generating signed URL:", error);
+      return '';
+    }
   };
 
-  const getImageUrlForNewTab = (absolutePath) => {
-    if (!absolutePath) return '';
-    return `http://localhost:3005/api/image-path/${encodeURIComponent(absolutePath)}`;
-  };
+  useEffect(() => {
+    const loadImages = async () => {
+      const urls = {};
+      const imagePaths = {
+        screenshot: action.screenshot_path,
+        vision: action.google_vision_plot,
+        yolo: action.yolo_plot,
+        yolo_icons: action.yolo_icons_plot,
+        annotated: action.annotated_plot,
+      };
+
+      for (const [key, path] of Object.entries(imagePaths)) {
+        if (path) {
+          urls[key] = await getSignedImageUrl(path);
+        }
+      }
+
+      setImageUrls(urls);
+    };
+
+    loadImages();
+  }, [action]);
 
   const toggleImage = (imageKey) => {
     setExpandedImage(expandedImage === imageKey ? null : imageKey);
@@ -54,7 +94,7 @@ export default function ActionCard({ action, showDetailsLink = true }) {
       <div style={styles.imageContainer}>
         <div style={styles.imageTitle}>{formatImageTitle(key)}</div>
         <img
-          src={getImageUrl(path)}
+          src={imageUrls[key]}
           alt={alt}
           style={{
             ...styles.thumbnail,
@@ -67,7 +107,7 @@ export default function ActionCard({ action, showDetailsLink = true }) {
             {isExpanded ? 'Shrink' : 'Expand'}
           </button>
           <a
-            href={getImageUrlForNewTab(path)}
+            href={imageUrls[key]}
             target="_blank"
             rel="noreferrer"
             style={styles.newTabLink}

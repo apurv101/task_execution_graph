@@ -1,50 +1,97 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   fetchInstructionById,
   runInstruction,
-  fetchActionsByInstructionId, 
+  fetchActionsByInstructionId,
+  deleteInstruction,
+  updateInstructionValidation,
 } from '../services/api';
 import ActionCard from '../components/ActionCard';
 
+// Debug environment variables
+console.log('Environment Variables:', {
+  region: process.env.REACT_APP_AWS_REGION,
+  bucket: process.env.REACT_APP_S3_BUCKET_NAME,
+});
+
+// Validate required environment variables
+const REGION = process.env.REACT_APP_AWS_REGION;
+const BUCKET_NAME = process.env.REACT_APP_S3_BUCKET_NAME;
+const ACCESS_KEY = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
+const SECRET_KEY = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
+
+if (!REGION || !BUCKET_NAME || !ACCESS_KEY || !SECRET_KEY) {
+  console.error('Missing required AWS environment variables.');
+}
+
+// S3 Client configuration with credentials
+const s3Client = new S3Client({
+  region: REGION || 'us-east-2',
+  credentials: {
+    accessKeyId: ACCESS_KEY,
+    secretAccessKey: SECRET_KEY,
+  }
+});
+
 export default function InstructionDetails() {
   const { instructionId } = useParams();
+  const navigate = useNavigate();
   const [instruction, setInstruction] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // State for actions
+  const [screenshotUrl, setScreenshotUrl] = useState('');
   const [actions, setActions] = useState([]);
   const [actionsLoading, setActionsLoading] = useState(true);
-
-  // State for prompt expansion
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
-
-  // State for screenshot expansion
   const [isScreenshotExpanded, setIsScreenshotExpanded] = useState(false);
+  const [validationForm, setValidationForm] = useState({
+    valid: false,
+    validation_comments: ''
+  });
 
-  const getImageUrl = (absolutePath) => {
-    if (!absolutePath) return '';
-    // Encode the absolute path for use in the URL
-    return `/api/image-path/${encodeURIComponent(absolutePath)}`;
-  };
-
-  const getImageUrlForNewTab = (absolutePath) => {
-    if (!absolutePath) return '';
-    // Use the full URL with the proxy port for direct navigation
-    return `http://localhost:3005/api/image-path/${encodeURIComponent(absolutePath)}`;
+  const getSignedImageUrl = async (objectKey) => {
+    if (!objectKey || !BUCKET_NAME) return '';
+    try {
+      const command = new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: objectKey,
+      });
+      const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+      return signedUrl;
+    } catch (error) {
+      console.error("Error generating signed URL:", error);
+      return '';
+    }
   };
 
   useEffect(() => {
-    fetchInstructionById(instructionId)
-      .then((data) => {
+    const loadInstructionAndImage = async () => {
+      try {
+        const data = await fetchInstructionById(instructionId);
         setInstruction(data);
+        if (data.screenshot_path) {
+          const url = await getSignedImageUrl(data.screenshot_path);
+          setScreenshotUrl(url);
+        }
+        // Initialize validation form with current values if they exist
+        if (data.validation) {
+          setValidationForm({
+            valid: data.validation.valid,
+            validation_comments: data.validation.validation_comments || ''
+          });
+        }
         setLoading(false);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error(err);
         setLoading(false);
-      });
-      fetchActionsByInstructionId(instructionId)
+      }
+    };
+
+    loadInstructionAndImage();
+
+    fetchActionsByInstructionId(instructionId)
       .then((actionData) => {
         setActions(actionData);
         setActionsLoading(false);
@@ -55,10 +102,46 @@ export default function InstructionDetails() {
       });
   }, [instructionId]);
 
+  const handleValidationUpdate = async () => {
+    try {
+      const validationPayload = {
+        valid: validationForm.valid,
+        validation_comments: validationForm.validation_comments
+      };
+      
+      await updateInstructionValidation(instructionId, validationPayload);
+      
+      // Update local state
+      setInstruction(prev => ({
+        ...prev,
+        validation: {
+          valid: validationForm.valid,
+          validation_comments: validationForm.validation_comments
+        }
+      }));
+      alert('Validation updated successfully');
+    } catch (err) {
+      console.error('Error updating validation:', err);
+      alert('Failed to update validation. Please try again.');
+    }
+  };
+
   const handleRunInstruction = () => {
     runInstruction(instructionId).then(() => {
       alert('Instruction run triggered (placeholder).');
     });
+  };
+
+  const handleDelete = async () => {
+    if (window.confirm('Are you sure you want to delete this instruction?')) {
+      try {
+        await deleteInstruction(instructionId);
+        navigate('/instructions');
+      } catch (err) {
+        console.error('Error deleting instruction:', err);
+        alert('Failed to delete instruction. Please try again.');
+      }
+    }
   };
 
   const togglePrompt = () => {
@@ -76,12 +159,20 @@ export default function InstructionDetails() {
     <div style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>Instruction Details</h1>
-        <button 
-          onClick={handleRunInstruction}
-          style={styles.runButton}
-        >
-          Run This Instruction
-        </button>
+        <div style={styles.headerButtons}>
+          <button 
+            onClick={handleRunInstruction}
+            style={styles.runButton}
+          >
+            Run This Instruction
+          </button>
+          <button 
+            onClick={handleDelete}
+            style={styles.deleteButton}
+          >
+            Delete Instruction
+          </button>
+        </div>
       </div>
 
       <div style={styles.card}>
@@ -142,7 +233,7 @@ export default function InstructionDetails() {
           {instruction.screenshot_path ? (
             <div style={styles.screenshotContainer}>
               <img
-                src={getImageUrl(instruction.screenshot_path)}
+                src={screenshotUrl}
                 alt="Instruction screenshot"
                 style={{
                   ...styles.screenshot,
@@ -158,7 +249,7 @@ export default function InstructionDetails() {
                   {isScreenshotExpanded ? 'Shrink Image' : 'Expand Image'}
                 </button>
                 <a 
-                  href={getImageUrlForNewTab(instruction.screenshot_path)} 
+                  href={screenshotUrl} 
                   target="_blank" 
                   rel="noreferrer"
                   style={styles.linkButton}
@@ -185,11 +276,102 @@ export default function InstructionDetails() {
           <p style={styles.text}>No actions found for this instruction.</p>
         )}
       </div>
+
+      <div style={styles.card}>
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Validation</h3>
+          <div style={styles.validationContainer}>
+            <div style={styles.validationStatus}>
+              <label style={styles.validationLabel}>
+                <span>Valid:</span>
+                <input
+                  type="checkbox"
+                  checked={validationForm.valid}
+                  onChange={(e) => setValidationForm(prev => ({
+                    ...prev,
+                    valid: e.target.checked
+                  }))}
+                  style={styles.checkbox}
+                />
+              </label>
+            </div>
+            <div style={styles.validationComments}>
+              <label style={styles.validationLabel}>
+                <span>Comments:</span>
+                <textarea
+                  value={validationForm.validation_comments}
+                  onChange={(e) => setValidationForm(prev => ({
+                    ...prev,
+                    validation_comments: e.target.value
+                  }))}
+                  style={styles.textarea}
+                  rows={4}
+                  placeholder="Enter validation comments..."
+                />
+              </label>
+            </div>
+            <button
+              onClick={handleValidationUpdate}
+              style={styles.validationButton}
+            >
+              Update Validation
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 const styles = {
+  validationContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '15px',
+    padding: '15px',
+    backgroundColor: '#f8f9fa',
+    borderRadius: '6px',
+  },
+  validationStatus: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  validationLabel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '5px',
+    fontSize: '0.9rem',
+    color: '#444',
+  },
+  checkbox: {
+    width: '20px',
+    height: '20px',
+    cursor: 'pointer',
+  },
+  validationComments: {
+    width: '100%',
+  },
+  textarea: {
+    width: '100%',
+    padding: '8px',
+    borderRadius: '4px',
+    border: '1px solid #ddd',
+    fontSize: '0.9rem',
+    resize: 'vertical',
+  },
+  validationButton: {
+    backgroundColor: '#4caf50',
+    color: 'white',
+    border: 'none',
+    padding: '10px 20px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '500',
+    alignSelf: 'flex-start',
+    transition: 'background-color 0.2s',
+  },
   container: {
     maxWidth: '1200px',
     margin: '0 auto',
@@ -200,6 +382,10 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '30px',
+  },
+  headerButtons: {
+    display: 'flex',
+    gap: '10px',
   },
   title: {
     fontSize: '2rem',
@@ -294,6 +480,17 @@ const styles = {
   },
   runButton: {
     backgroundColor: '#2196f3',
+    color: 'white',
+    border: 'none',
+    padding: '10px 20px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '500',
+    transition: 'background-color 0.2s',
+  },
+  deleteButton: {
+    backgroundColor: '#dc3545',
     color: 'white',
     border: 'none',
     padding: '10px 20px',

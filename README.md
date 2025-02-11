@@ -68,3 +68,19 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+# Task Execution Graph
+
+## Environment Setup
+
+1. Create a `.env` file in the project root with the following variables:
+```
+REACT_APP_AWS_REGION=your-aws-region
+REACT_APP_S3_BUCKET_NAME=your-bucket-name
+```
+
+2. Make sure to restart the development server after adding or modifying environment variables.
+
+3. For production deployment, set these environment variables in your hosting platform.
+
+Note: All environment variables must be prefixed with `REACT_APP_` to be accessible in the React application.
