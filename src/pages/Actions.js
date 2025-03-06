@@ -1,19 +1,19 @@
-// src/pages/Actions.js
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { fetchAllActions, deleteAction } from '../services/api';
+import ActionCard from '../components/ActionCard';
 
 export default function Actions() {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchAllActions()
       .then((data) => {
-        // Sort actions by start_time in descending order (newest first)
+        // Sort actions by created_at in descending order (if available)
         const sortedActions = data.sort((a, b) => {
-          if (a.start_time && b.start_time) {
-            return new Date(b.start_time) - new Date(a.start_time);
+          if (a.created_at && b.created_at) {
+            return new Date(b.created_at) - new Date(a.created_at);
           }
           return 0;
         });
@@ -22,6 +22,7 @@ export default function Actions() {
       })
       .catch((err) => {
         console.error(err);
+        setError(err.message);
         setLoading(false);
       });
   }, []);
@@ -39,6 +40,7 @@ export default function Actions() {
   };
 
   if (loading) return <p style={styles.loading}>Loading actions...</p>;
+  if (error) return <p style={styles.error}>Error: {error}</p>;
 
   return (
     <div style={styles.container}>
@@ -52,56 +54,14 @@ export default function Actions() {
         ) : (
           <div style={styles.actionList}>
             {actions.map((action) => (
-              <div key={action._id} style={styles.actionItem}>
-                <div style={styles.actionHeader}>
-                  <div>
-                    <h3 style={styles.actionId}>
-                      Action ID: {action.action_id}
-                    </h3>
-                    <p style={styles.instructionId}>
-                      Instruction ID: {action.instruction_id || 'N/A'}
-                    </p>
-                    <div style={styles.metadata}>
-                      <p style={styles.status}>
-                        Status: {action.status || 'N/A'}
-                      </p>
-                      <p style={styles.timestamp}>
-                        Started: {action.start_time 
-                          ? new Date(action.start_time).toLocaleString() 
-                          : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                  <div style={styles.actionButtons}>
-                    <Link
-                      to={`/actions/${action.action_id}`}
-                      style={styles.viewButton}
-                    >
-                      View Details
-                    </Link>
-                    <button
-                      onClick={() => handleDelete(action.action_id)}
-                      style={styles.deleteButton}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-                <div style={styles.actionContent}>
-                  <p style={styles.actionDescription}>
-                    {action.task || 'No description available'}
-                  </p>
-                  {action.notes && (
-                    <p style={styles.notes}>
-                      Notes: {action.notes}
-                    </p>
-                  )}
-                  {action.screenshot_path && (
-                    <div style={styles.screenshotInfo}>
-                      <span style={styles.iconText}>📸 Screenshot available</span>
-                    </div>
-                  )}
-                </div>
+              <div key={action.action_id} style={styles.actionItem}>
+                <ActionCard action={action} showDetailsLink={true} />
+                <button
+                  onClick={() => handleDelete(action.action_id)}
+                  style={styles.deleteButton}
+                >
+                  Delete Action
+                </button>
               </div>
             ))}
           </div>

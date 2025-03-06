@@ -71,8 +71,8 @@ export default function TaskDetails() {
         </div>
 
         <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>Task Name</h3>
-          <p style={styles.text}>{task.task || 'No title'}</p>
+          <h3 style={styles.sectionTitle}>Task Description</h3>
+          <p style={styles.text}>{task.description || 'No description available'}</p>
         </div>
 
         <div style={styles.section}>

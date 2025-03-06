@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   fetchInstructionById,
   runInstruction,
@@ -9,30 +7,16 @@ import {
   deleteInstruction,
   updateInstructionValidation,
 } from '../services/api';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import ActionCard from '../components/ActionCard';
 
-// Debug environment variables
-console.log('Environment Variables:', {
-  region: process.env.REACT_APP_AWS_REGION,
-  bucket: process.env.REACT_APP_S3_BUCKET_NAME,
-});
-
-// Validate required environment variables
-const REGION = process.env.REACT_APP_AWS_REGION;
-const BUCKET_NAME = process.env.REACT_APP_S3_BUCKET_NAME;
-const ACCESS_KEY = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-const SECRET_KEY = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
-
-if (!REGION || !BUCKET_NAME || !ACCESS_KEY || !SECRET_KEY) {
-  console.error('Missing required AWS environment variables.');
-}
-
-// S3 Client configuration with credentials
+// S3 Client configuration
 const s3Client = new S3Client({
-  region: REGION || 'us-east-2',
+  region: process.env.REACT_APP_AWS_REGION || 'us-east-2',
   credentials: {
-    accessKeyId: ACCESS_KEY,
-    secretAccessKey: SECRET_KEY,
+    accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY,
   }
 });
 
@@ -41,7 +25,6 @@ export default function InstructionDetails() {
   const navigate = useNavigate();
   const [instruction, setInstruction] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [screenshotUrl, setScreenshotUrl] = useState('');
   const [actions, setActions] = useState([]);
   const [actionsLoading, setActionsLoading] = useState(true);
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
@@ -50,15 +33,19 @@ export default function InstructionDetails() {
     valid: false,
     validation_comments: ''
   });
+  const [signedUrls, setSignedUrls] = useState({});
+  const [imageErrors, setImageErrors] = useState({});
 
+  // Get signed URLs for S3 objects
   const getSignedImageUrl = async (objectKey) => {
-    if (!objectKey || !BUCKET_NAME) return '';
+    if (!objectKey) return '';
     try {
       const command = new GetObjectCommand({
-        Bucket: BUCKET_NAME,
+        Bucket: process.env.REACT_APP_S3_BUCKET_NAME,
         Key: objectKey,
       });
       const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+      console.log(`Generated signed URL for ${objectKey}`);
       return signedUrl;
     } catch (error) {
       console.error("Error generating signed URL:", error);
@@ -66,15 +53,33 @@ export default function InstructionDetails() {
     }
   };
 
+  // Generate signed URLs for all images
+  const generateAllSignedUrls = async (instructionData) => {
+    if (!instructionData?.visual_assets) return;
+    
+    const urls = {};
+    const visualAssets = instructionData.visual_assets;
+    
+    for (const [key, path] of Object.entries(visualAssets)) {
+      if (path) {
+        console.log(`Generating signed URL for ${key}: ${path}`);
+        urls[key] = await getSignedImageUrl(path);
+      }
+    }
+    
+    console.log('Generated signed URLs:', urls);
+    setSignedUrls(urls);
+  };
+
   useEffect(() => {
-    const loadInstructionAndImage = async () => {
+    const loadInstructionAndAssets = async () => {
       try {
         const data = await fetchInstructionById(instructionId);
         setInstruction(data);
-        if (data.screenshot_path) {
-          const url = await getSignedImageUrl(data.screenshot_path);
-          setScreenshotUrl(url);
-        }
+        
+        // Generate signed URLs for all images
+        await generateAllSignedUrls(data);
+        
         // Initialize validation form with current values if they exist
         if (data.validation) {
           setValidationForm({
@@ -82,6 +87,7 @@ export default function InstructionDetails() {
             validation_comments: data.validation.validation_comments || ''
           });
         }
+        
         setLoading(false);
       } catch (err) {
         console.error(err);
@@ -89,7 +95,7 @@ export default function InstructionDetails() {
       }
     };
 
-    loadInstructionAndImage();
+    loadInstructionAndAssets();
 
     fetchActionsByInstructionId(instructionId)
       .then((actionData) => {
@@ -152,8 +158,19 @@ export default function InstructionDetails() {
     setIsScreenshotExpanded((prev) => !prev);
   };
 
-  if (loading) return <p>Loading Instruction...</p>;
-  if (!instruction) return <p>No instruction found with ID {instructionId}</p>;
+  const handleImageError = (key, path) => {
+    console.error(`Failed to load image: ${path}`);
+    setImageErrors(prev => ({
+      ...prev,
+      [key]: true
+    }));
+  };
+
+  if (loading) return <p style={styles.loading}>Loading Instruction...</p>;
+  if (!instruction) return <p style={styles.error}>No instruction found with ID {instructionId}</p>;
+
+  // Define placeholder image from public folder
+  const placeholderImage = process.env.PUBLIC_URL + '/logo192.png';
 
   return (
     <div style={styles.container}>
@@ -190,18 +207,46 @@ export default function InstructionDetails() {
           <h3 style={styles.sectionTitle}>Instruction</h3>
           <p style={styles.text}>{instruction.instruction || 'N/A'}</p>
         </div>
+        
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Environment</h3>
+          <p style={styles.text}>{instruction.environment || 'N/A'}</p>
+        </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Parent Task</h3>
+          <p style={styles.text}>{instruction.parent?.task_id || 'N/A'}</p>
+        </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Sequence</h3>
+          <p style={styles.text}>{instruction.sequence || 'N/A'}</p>
+        </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Hierarchy Level</h3>
+          <p style={styles.text}>{instruction.hierarchy_level || 'N/A'}</p>
+        </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Data Flow</h3>
+          <div style={styles.codeBox}>
+            <p><strong>Input:</strong> {instruction.data_flow?.input || 'N/A'}</p>
+            <p><strong>Output:</strong> {instruction.data_flow?.output || 'N/A'}</p>
+          </div>
+        </div>
 
         <div style={styles.section}>
           <h3 style={styles.sectionTitle}>Prompt</h3>
           <pre style={styles.promptBox}>
             <code>
               {isPromptExpanded
-                ? instruction.prompt || 'N/A'
-                : (instruction.prompt?.slice(0, 100) || 'N/A') + 
-                  (instruction.prompt?.length > 100 ? '...' : '')}
+                ? instruction.llm_data?.prompt || 'N/A'
+                : (instruction.llm_data?.prompt?.slice(0, 100) || 'N/A') + 
+                  (instruction.llm_data?.prompt?.length > 100 ? '...' : '')}
             </code>
           </pre>
-          {instruction.prompt && instruction.prompt.length > 100 && (
+          {instruction.llm_data?.prompt && instruction.llm_data.prompt.length > 100 && (
             <button 
               onClick={togglePrompt} 
               style={styles.controlButton}
@@ -214,8 +259,13 @@ export default function InstructionDetails() {
         <div style={styles.section}>
           <h3 style={styles.sectionTitle}>Generated Instruction</h3>
           <pre style={styles.codeBox}>
-            {JSON.stringify(instruction.generated_instruction, null, 2)}
+            {JSON.stringify(instruction.llm_data?.generated_instruction, null, 2)}
           </pre>
+        </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Notes</h3>
+          <p style={styles.text}>{instruction.notes || 'No notes available'}</p>
         </div>
 
         <div style={styles.section}>
@@ -230,16 +280,19 @@ export default function InstructionDetails() {
 
         <div style={styles.section}>
           <h3 style={styles.sectionTitle}>Screenshot</h3>
-          {instruction.screenshot_path ? (
+          {instruction.visual_assets?.screenshot_path ? (
             <div style={styles.screenshotContainer}>
               <img
-                src={screenshotUrl}
+                src={imageErrors['screenshot'] 
+                  ? placeholderImage 
+                  : signedUrls['screenshot_path'] || placeholderImage}
                 alt="Instruction screenshot"
                 style={{
                   ...styles.screenshot,
                   ...(isScreenshotExpanded && styles.expandedScreenshot)
                 }}
                 onClick={toggleScreenshot}
+                onError={() => handleImageError('screenshot', instruction.visual_assets.screenshot_path)}
               />
               <div style={styles.imageControls}>
                 <button 
@@ -248,20 +301,75 @@ export default function InstructionDetails() {
                 >
                   {isScreenshotExpanded ? 'Shrink Image' : 'Expand Image'}
                 </button>
-                <a 
-                  href={screenshotUrl} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  style={styles.linkButton}
-                >
-                  Open in New Tab
-                </a>
+                {signedUrls['screenshot_path'] && (
+                  <a 
+                    href={signedUrls['screenshot_path']} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    style={styles.linkButton}
+                  >
+                    Open in New Tab
+                  </a>
+                )}
               </div>
             </div>
           ) : (
             <p style={styles.text}>No screenshot available</p>
           )}
         </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Other Visual Assets</h3>
+          <div style={styles.visualAssetsGrid}>
+            {instruction.visual_assets && Object.entries(instruction.visual_assets)
+              .filter(([key]) => key !== 'screenshot_path')
+              .map(([key, path]) => (
+                <div key={key} style={styles.visualAssetItem}>
+                  <h4 style={styles.visualAssetTitle}>{key.replace(/_/g, ' ')}</h4>
+                  <img 
+                    src={imageErrors[key] 
+                      ? placeholderImage 
+                      : signedUrls[key] || placeholderImage}
+                    alt={key} 
+                    style={styles.visualAssetThumbnail}
+                    onError={() => handleImageError(key, path)}
+                  />
+                  {signedUrls[key] && (
+                    <a 
+                      href={signedUrls[key]} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      style={styles.smallLinkButton}
+                    >
+                      View Full Size
+                    </a>
+                  )}
+                </div>
+              ))
+            }
+            {(!instruction.visual_assets || 
+              Object.entries(instruction.visual_assets).filter(([key]) => key !== 'screenshot_path').length === 0) && (
+              <p style={styles.text}>No additional visual assets available</p>
+            )}
+          </div>
+        </div>
+        
+        {instruction.instruction_history && instruction.instruction_history.length > 0 && (
+          <div style={styles.section}>
+            <h3 style={styles.sectionTitle}>Instruction History</h3>
+            <div style={styles.historyContainer}>
+              {instruction.instruction_history.map((historyItem, index) => (
+                <div key={index} style={styles.historyItem}>
+                  <p><strong>ID:</strong> {historyItem.instruction_id}</p>
+                  <p><strong>Instruction:</strong> {historyItem.instruction}</p>
+                  <p><strong>Environment:</strong> {historyItem.environment}</p>
+                  <p><strong>Input:</strong> {historyItem.input || 'N/A'}</p>
+                  <p><strong>Output:</strong> {historyItem.output || 'N/A'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={styles.actionsSection}>
@@ -517,5 +625,38 @@ const styles = {
   },
   actionsSection: {
     marginTop: '40px',
-  }
+  },
+  historyContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '15px',
+  },
+  historyItem: {
+    backgroundColor: '#f8f9fa',
+    padding: '15px',
+    borderRadius: '6px',
+    border: '1px solid #eee',
+  },
+  visualAssetsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '15px',
+  },
+  visualAssetItem: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  visualAssetTitle: {
+    fontSize: '1rem',
+    color: '#444',
+    textAlign: 'center',
+  },
+  visualAssetThumbnail: {
+    width: '100%',
+    height: 'auto',
+    borderRadius: '6px',
+    border: '1px solid #ddd',
+  },
 };

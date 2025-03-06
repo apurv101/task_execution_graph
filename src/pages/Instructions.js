@@ -61,7 +61,10 @@ export default function Instructions() {
                       Instruction ID: {instr.instruction_id}
                     </h3>
                     <p style={styles.taskId}>
-                      Task ID: {instr.task_id || 'N/A'}
+                      Task ID: {instr.parent?.task_id || 'N/A'}
+                    </p>
+                    <p style={styles.environment}>
+                      Environment: {instr.environment || 'N/A'}
                     </p>
                     <div style={styles.timestamps}>
                       {instr.created_at && (
@@ -96,6 +99,12 @@ export default function Instructions() {
                     {instr.instruction || 'No description available'}
                   </p>
                 </div>
+                {instr.sequence && (
+                  <div style={styles.sequenceInfo}>
+                    <span style={styles.sequence}>Sequence: {instr.sequence}</span>
+                    <span style={styles.hierarchyLevel}>Level: {instr.hierarchy_level || 'N/A'}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -206,5 +215,29 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.9rem',
     transition: 'background-color 0.2s',
+  },
+  environment: {
+    fontSize: '0.9rem',
+    color: '#666',
+    margin: '4px 0',
+  },
+  sequenceInfo: {
+    display: 'flex',
+    gap: '15px',
+    marginTop: '10px',
+  },
+  sequence: {
+    fontSize: '0.85rem',
+    color: '#555',
+    backgroundColor: '#f1f1f1',
+    padding: '3px 8px',
+    borderRadius: '4px',
+  },
+  hierarchyLevel: {
+    fontSize: '0.85rem',
+    color: '#555',
+    backgroundColor: '#f1f1f1',
+    padding: '3px 8px',
+    borderRadius: '4px',
   },
 };

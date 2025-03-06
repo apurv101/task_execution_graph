@@ -53,7 +53,7 @@ export default function Tasks() {
                 </div>
                 <div style={styles.taskContent}>
                   <p style={styles.taskDescription}>
-                    {task.task || 'No description available'}
+                    {task.description || 'No description available'}
                   </p>
                 </div>
               </div>
